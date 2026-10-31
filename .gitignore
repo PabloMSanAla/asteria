@@ -43,3 +43,7 @@ docs/build/
 .idea/
 .vscode/
 *.swp
+
+# Untracked developer notes & guidelines
+guidelines.md
+*guidelines*.md
