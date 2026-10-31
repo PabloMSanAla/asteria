@@ -1,0 +1,45 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Distribution / packaging
+dist/
+build/
+*.egg-info/
+.eggs/
+
+# Environments
+.env
+.venv
+env/
+venv/
+ENV/
+
+# Testing & Coverage
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Weights & Large Data (Never commit real weights or data files)
+*.pt
+*.pth
+*.onnx
+*.fits
+*.fits.gz
+*.asdf
+*.tar
+*.tar.gz
+data/
+weights/
+.cache/
+
+# Sphinx docs build
+docs/_build/
+docs/build/
+
+# IDE & OS
+.DS_Store
+.idea/
+.vscode/
+*.swp

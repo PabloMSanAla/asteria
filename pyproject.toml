@@ -1,0 +1,84 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "asteria"
+version = "0.1.0"
+description = "Lightweight astronomical deep learning inference engine and instance deblender powered by boundary-aware UNet++"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.9"
+authors = [
+    { name = "Pablo M. Sanchez-Alarcon", email = "pablo.sanchezalarcon@nasa.gov" },
+]
+keywords = [
+    "astronomy",
+    "astrophysics",
+    "deep-learning",
+    "segmentation",
+    "deblending",
+    "unetplusplus",
+    "roman-space-telescope",
+    "fits",
+    "asdf",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "Topic :: Scientific/Engineering :: Astronomy",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+dependencies = [
+    "torch>=2.0.0",
+    "numpy>=1.22.0",
+    "astropy>=5.0.0",
+    "scipy>=1.9.0",
+    "matplotlib>=3.6.0",
+    "requests>=2.28.0",
+]
+
+[project.optional-dependencies]
+asdf = [
+    "asdf>=2.15.0",
+]
+docs = [
+    "sphinx>=7.0.0",
+    "sphinx-rtd-theme>=2.0.0",
+    "myst-parser>=2.0.0",
+]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-cov>=4.0.0",
+    "build>=1.0.0",
+    "twine>=5.0.0",
+]
+
+[project.scripts]
+asteria = "asteria.cli:main"
+asteria-predict = "asteria.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/PabloMSanAla/asteria"
+Documentation = "https://asteria.readthedocs.io"
+Repository = "https://github.com/PabloMSanAla/asteria.git"
+Issues = "https://github.com/PabloMSanAla/asteria/issues"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/asteria"]
+
+[tool.pytest.ini_options]
+minversion = "7.0"
+addopts = "-ra -q --durations=10"
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+
+[tool.coverage.run]
+source = ["src/asteria"]
+omit = ["tests/*"]

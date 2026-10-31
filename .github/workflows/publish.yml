@@ -1,0 +1,67 @@
+name: Deploy to PyPI
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  id-token: write  # Mandatory for PyPI Trusted Publishing (OIDC)
+  contents: read
+
+jobs:
+  test:
+    name: Run Pre-Release Tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]"
+
+      - name: Run Pytest
+        run: |
+          pytest -v
+
+  build-and-publish:
+    name: Build & Publish to PyPI
+    needs: test
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/p/asteria
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Build Tools
+        run: |
+          python -m pip install --upgrade pip build twine
+
+      - name: Build Distribution Packages
+        run: |
+          python -m build
+
+      - name: Validate Wheel & Sdist with Twine
+        run: |
+          twine check dist/*
+
+      - name: Publish Package to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          skip-existing: true
