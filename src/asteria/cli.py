@@ -69,6 +69,43 @@ def build_parser() -> argparse.ArgumentParser:
         help="Astronomical surface brightness stretch algorithm.",
     )
     parser.add_argument(
+        "--zp",
+        "--zeropoint",
+        "--zero_point",
+        dest="zp",
+        type=float,
+        default=None,
+        help="Photometric zero point for surface brightness stretch (default: 20.472 for MJy/sr Roman ASDF, 31.4 for FITS).",
+    )
+    parser.add_argument(
+        "--pixel_scale",
+        "--pixelscale",
+        dest="pixel_scale",
+        type=float,
+        default=None,
+        help="Detector plate scale in arcseconds per pixel (default: 0.11 for Roman WFI).",
+    )
+    parser.add_argument(
+        "--mmin",
+        type=float,
+        default=None,
+        help="Bright-end surface brightness magnitude cutoff in mag/arcsec^2 (default: 13.0).",
+    )
+    parser.add_argument(
+        "--mmax",
+        type=float,
+        default=None,
+        help="Faint-end surface brightness magnitude cutoff in mag/arcsec^2 (default: 32.0).",
+    )
+    parser.add_argument(
+        "--leak_slope",
+        "--leakslope",
+        dest="leak_slope",
+        type=float,
+        default=None,
+        help="Slope of linear response for negative/sub-background flux values (default: 0.05).",
+    )
+    parser.add_argument(
         "--output",
         type=str,
         default=None,
@@ -121,10 +158,27 @@ def main(argv=None) -> int:
     astro = load_image(image_path)
     h, w = astro.data.shape
     print(f"Dimensions:    {w} × {h} pixels ({w * h / 1e6:.2f} Megapixels)")
+    if astro.level is not None:
+        print(f"Product:       Roman Space Telescope Level {astro.level} ({astro.unit}, zp={astro.zero_point})")
+    elif astro.unit != "DN/s":
+        print(f"Unit:          {astro.unit} (zp={astro.zero_point})")
 
     # Load segmentor
     segmentor = AsteriaSegmentor.from_pretrained(args.checkpoint, device=args.device)
     print(f"Accelerator:   {segmentor.device}")
+
+    # Prepare stretch kwargs
+    stretch_kwargs = {}
+    if args.zp is not None:
+        stretch_kwargs["zero_points"] = args.zp
+    if args.pixel_scale is not None:
+        stretch_kwargs["pixel_scale"] = args.pixel_scale
+    if args.mmin is not None:
+        stretch_kwargs["mmin"] = args.mmin
+    if args.mmax is not None:
+        stretch_kwargs["mmax"] = args.mmax
+    if args.leak_slope is not None:
+        stretch_kwargs["leak_slope"] = args.leak_slope
 
     # Run inference
     t0 = time.time()
@@ -135,6 +189,7 @@ def main(argv=None) -> int:
         batch_size=args.batch_size,
         stretch_type=args.stretch,
         verbose=True,
+        **stretch_kwargs,
     )
     elapsed = time.time() - t0
 
@@ -158,6 +213,7 @@ def main(argv=None) -> int:
             overlap=args.overlap,
             batch_size=args.batch_size,
             stretch_type=args.stretch,
+            **stretch_kwargs,
         )
         print(f"Extracted {len(res.masks)} distinct celestial source instances!")
         if len(res.masks) > 0:

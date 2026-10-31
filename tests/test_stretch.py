@@ -3,6 +3,8 @@
 import numpy as np
 from asteria.stretch.leakysb import (
     leaky_surface_brightness,
+    leakySB,
+    leakySB_inverse,
     asinh_stretch,
     linear_stretch,
     stretch_image,
@@ -20,6 +22,17 @@ def test_leakysb_synthetic_field():
     assert np.all(stretched <= 1.0)
     assert not np.any(np.isnan(stretched))
     assert not np.any(np.isinf(stretched))
+
+
+def test_leakysb_rgb_and_inverse():
+    raw_img, _ = make_synthetic_field(size=64, seed=42)
+    rgb = leakySB(raw_img, raw_img, raw_img, zero_points=31.4, pixel_scale=0.11)
+    assert rgb.shape == (64, 64, 3)
+    assert np.all(rgb >= 0.0) and np.all(rgb <= 1.0)
+
+    # Invert back to physical flux
+    r_rec, g_rec, b_rec = leakySB_inverse(rgb, zero_points=31.4, pixel_scale=0.11)
+    assert np.allclose(r_rec, raw_img, atol=1e-2)
 
 
 def test_leakysb_monotonic_flux():

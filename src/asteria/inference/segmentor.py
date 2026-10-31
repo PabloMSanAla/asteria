@@ -23,12 +23,112 @@ from asteria.weights.manager import resolve_checkpoint_path
 logger = logging.getLogger(__name__)
 
 
-def _make_2d_cosine_window(tile_size: int) -> np.ndarray:
-    """Create a 2D Hann / cosine window for smooth tile blending."""
-    w1d = np.hanning(tile_size).astype(np.float32)
-    # Avoid zero weight on extreme borders
-    w1d = np.clip(w1d, 0.05, 1.0)
-    return np.outer(w1d, w1d)
+def _build_tile_window(
+    size: int,
+    overlap: int,
+    is_top: bool,
+    is_bottom: bool,
+    is_left: bool,
+    is_right: bool,
+) -> np.ndarray:
+    """
+    Construct a 2D cosine blending window for sliding tile inference.
+    Edges touching physical image boundaries maintain weight 1.0 to prevent border fading.
+    """
+    if overlap <= 0:
+        return np.ones((size, size), dtype=np.float32)
+
+    ramp = 0.5 * (1.0 - np.cos(np.linspace(0, np.pi, overlap, dtype=np.float32)))
+
+    wy = np.ones(size, dtype=np.float32)
+    if not is_top:
+        wy[:overlap] = ramp
+    if not is_bottom:
+        wy[-overlap:] = ramp[::-1]
+
+    wx = np.ones(size, dtype=np.float32)
+    if not is_left:
+        wx[:overlap] = ramp
+    if not is_right:
+        wx[-overlap:] = ramp[::-1]
+
+    return np.outer(wy, wx)
+
+
+def _resolve_stretch_kwargs(
+    astro: AstroImage,
+    stretch_type: str,
+    zero_points: Optional[float] = None,
+    pixel_scale: Optional[float] = None,
+    mmin: Optional[float] = None,
+    mmax: Optional[float] = None,
+    leak_slope: Optional[float] = None,
+    negative_slope: Optional[float] = None,
+    positive_slope: Optional[float] = None,
+    **stretch_kwargs,
+) -> Dict[str, Any]:
+    """
+    Resolve and validate astronomical surface brightness stretch parameters.
+
+    Handles parameter aliases (e.g. zeropoint, zero_point, pixelscale) and defaults
+    to image metadata (e.g. Roman L2/L3 zero point 20.472 for MJy/sr) when omitted.
+    """
+    kwargs = dict(stretch_kwargs)
+
+    if stretch_type.lower() in ("leakysb", "leaky_sb"):
+        # Resolve zero point: explicit argument > alias in kwargs > astro.zero_point > 31.4
+        zp = zero_points
+        if zp is None:
+            for k in ("zero_points", "zero_point", "zeropoint", "zp"):
+                if k in kwargs and kwargs[k] is not None:
+                    zp = kwargs.pop(k)
+                    break
+        if zp is None:
+            zp = getattr(astro, "zero_point", 31.4)
+        kwargs["zero_points"] = float(zp)
+
+        # Resolve pixel scale
+        ps = pixel_scale
+        if ps is None:
+            for k in ("pixel_scale", "pixelscale", "ps"):
+                if k in kwargs and kwargs[k] is not None:
+                    ps = kwargs.pop(k)
+                    break
+        if ps is not None:
+            kwargs["pixel_scale"] = float(ps)
+
+        # Resolve magnitude cutoffs
+        if mmin is not None:
+            kwargs["mmin"] = float(mmin)
+        elif "mmin" in kwargs and kwargs["mmin"] is not None:
+            kwargs["mmin"] = float(kwargs["mmin"])
+
+        if mmax is not None:
+            kwargs["mmax"] = float(mmax)
+        elif "mmax" in kwargs and kwargs["mmax"] is not None:
+            kwargs["mmax"] = float(kwargs["mmax"])
+
+        # Resolve positive slope / leak slope
+        pos_s = positive_slope if positive_slope is not None else leak_slope
+        if pos_s is None:
+            for k in ("positive_slope", "leak_slope", "leakslope"):
+                if k in kwargs and kwargs[k] is not None:
+                    pos_s = kwargs.pop(k)
+                    break
+        if pos_s is not None:
+            kwargs["positive_slope"] = float(pos_s)
+
+        # Resolve negative slope
+        neg_s = negative_slope
+        if neg_s is None:
+            for k in ("negative_slope",):
+                if k in kwargs and kwargs[k] is not None:
+                    neg_s = kwargs.pop(k)
+                    break
+        if neg_s is not None:
+            kwargs["negative_slope"] = float(neg_s)
+
+    return kwargs
 
 
 class AsteriaSegmentor:
@@ -46,6 +146,8 @@ class AsteriaSegmentor:
     device : torch.device or str, optional
         Target hardware accelerator ('cuda', 'mps', 'cpu'). Auto-selected if None.
     """
+
+    _build_tile_window = staticmethod(_build_tile_window)
 
     def __init__(
         self,
@@ -80,20 +182,37 @@ class AsteriaSegmentor:
         dev = get_optimal_device(device)
 
         ckpt = torch.load(ckpt_path, map_location=dev)
-        state_dict = ckpt["model_state_dict"] if "model_state_dict" in ckpt else ckpt
+        state_dict = ckpt["model_state_dict"] if isinstance(ckpt, dict) and "model_state_dict" in ckpt else ckpt
 
         in_channels = ckpt.get("in_channels", 3) if isinstance(ckpt, dict) else 3
         num_classes = ckpt.get("num_classes", 3) if isinstance(ckpt, dict) else 3
         features = tuple(ckpt.get("features", (32, 64, 128, 256, 512))) if isinstance(ckpt, dict) else (32, 64, 128, 256, 512)
         deep_supervision = ckpt.get("deep_supervision", False) if isinstance(ckpt, dict) else False
+        norm_type = ckpt.get("norm_type", "batch") if isinstance(ckpt, dict) else "batch"
+
+        # Sanitize keys: strip DDP 'module.' or compiled '_orig_mod.' prefixes
+        cleaned_sd = {}
+        for k, v in state_dict.items():
+            k_clean = k
+            if k_clean.startswith("module."):
+                k_clean = k_clean[len("module."):]
+            if k_clean.startswith("_orig_mod."):
+                k_clean = k_clean[len("_orig_mod."):]
+            # Remap legacy VGGBlock keys if present
+            k_clean = k_clean.replace(".conv1.", ".block.0.")
+            k_clean = k_clean.replace(".bn1.", ".block.1.")
+            k_clean = k_clean.replace(".conv2.", ".block.3.")
+            k_clean = k_clean.replace(".bn2.", ".block.4.")
+            cleaned_sd[k_clean] = v
 
         model = UNetPlusPlus(
             in_channels=in_channels,
             num_classes=num_classes,
             features=features,
             deep_supervision=deep_supervision,
+            norm_type=norm_type,
         )
-        model.load_state_dict(state_dict)
+        model.load_state_dict(cleaned_sd)
         logger.info(f"[asteria] Loaded weights from: {ckpt_path} onto {get_device_info(dev)}")
 
         return cls(model=model, device=dev)
@@ -102,6 +221,13 @@ class AsteriaSegmentor:
         self,
         image: Union[np.ndarray, AstroImage, str, Path],
         stretch_type: str = "leakysb",
+        zero_points: Optional[float] = None,
+        pixel_scale: Optional[float] = None,
+        mmin: Optional[float] = None,
+        mmax: Optional[float] = None,
+        leak_slope: Optional[float] = None,
+        negative_slope: Optional[float] = None,
+        positive_slope: Optional[float] = None,
         **stretch_kwargs,
     ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         """
@@ -112,7 +238,27 @@ class AsteriaSegmentor:
         image : np.ndarray, AstroImage, str, or Path
             Input astronomical image.
         stretch_type : str, default 'leakysb'
-            Intensity transformation.
+            Intensity transformation algorithm ('leakysb', 'asinh', 'linear').
+        zero_points : float, optional
+            Photometric zero point for surface brightness transformation
+            (defaults to 20.472 for Roman L2/L3 MJy/sr images, 31.4 for FITS).
+            Aliases: zeropoint, zero_point, zp.
+        pixel_scale : float, optional
+            Detector plate scale in arcsec/pixel (default: 0.11 for Roman WFI).
+            Alias: pixelscale.
+        mmin : float, optional
+            Bright-end surface brightness magnitude cutoff in mag/arcsec^2 (default: 13.0).
+        mmax : float, optional
+            Faint-end surface brightness magnitude cutoff in mag/arcsec^2 (default: 32.0).
+        leak_slope : float, optional
+            Slope of linear response for negative/sub-background flux values (default: 0.05).
+            Alias: leakslope.
+        negative_slope : float, optional
+            Negative/faint slope for leakySB (default: 0.1).
+        positive_slope : float, optional
+            Positive/bright slope for leakySB (default: 0.05).
+        **stretch_kwargs
+            Additional arguments passed to the stretch function.
 
         Returns
         -------
@@ -128,8 +274,21 @@ class AsteriaSegmentor:
         raw_data = astro.data
         h, w = raw_data.shape
 
+        resolved_stretch = _resolve_stretch_kwargs(
+            astro=astro,
+            stretch_type=stretch_type,
+            zero_points=zero_points,
+            pixel_scale=pixel_scale,
+            mmin=mmin,
+            mmax=mmax,
+            leak_slope=leak_slope,
+            negative_slope=negative_slope,
+            positive_slope=positive_slope,
+            **stretch_kwargs,
+        )
+
         # Photometric stretch
-        stretched = stretch_image(raw_data, stretch_type=stretch_type, **stretch_kwargs)
+        stretched = stretch_image(raw_data, stretch_type=stretch_type, **resolved_stretch)
 
         # Pad to multiple of 16
         pad_h = (16 - (h % 16)) % 16
@@ -162,26 +321,54 @@ class AsteriaSegmentor:
         batch_size: int = 2,
         stretch_type: str = "leakysb",
         verbose: bool = False,
+        zero_points: Optional[float] = None,
+        pixel_scale: Optional[float] = None,
+        mmin: Optional[float] = None,
+        mmax: Optional[float] = None,
+        leak_slope: Optional[float] = None,
+        negative_slope: Optional[float] = None,
+        positive_slope: Optional[float] = None,
         **stretch_kwargs,
     ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         """
         Run dense 3-class segmentation inference over full astronomical exposures.
         Seamlessly processes arbitrary image sizes (e.g. 4088x4088 Roman WFI fields)
-        via sliding-window tiling with 2D cosine window blending and bounded memory.
+        via sliding-window tiling with edge-aware cosine window blending.
 
         Parameters
         ----------
         image : np.ndarray, AstroImage, str, or Path
             Input astronomical image.
         tile_size : int, default 512
-            Tile width/height in pixels. Set to 0 to bypass tiling.
+            Tile width/height in pixels. Set to 0 to bypass tiling. Must be divisible by 16.
         overlap : int, default 64
             Overlap in pixels between adjacent tiles.
         batch_size : int, default 2
             Number of tiles per GPU forward batch.
         stretch_type : str, default 'leakysb'
-            Intensity transformation.
+            Intensity transformation ('leakysb', 'asinh', 'linear').
         verbose : bool, default False
+            If True, prints execution timing and tile progress.
+        zero_points : float, optional
+            Photometric zero point for surface brightness transformation
+            (defaults to 20.472 for Roman L2/L3 MJy/sr images, 31.4 for FITS).
+            Aliases: zeropoint, zero_point, zp.
+        pixel_scale : float, optional
+            Detector plate scale in arcsec/pixel (default: 0.11 for Roman WFI).
+            Alias: pixelscale.
+        mmin : float, optional
+            Bright-end surface brightness magnitude cutoff in mag/arcsec^2 (default: 13.0).
+        mmax : float, optional
+            Faint-end surface brightness magnitude cutoff in mag/arcsec^2 (default: 32.0).
+        leak_slope : float, optional
+            Slope of linear response for negative/sub-background flux values (default: 0.05).
+            Alias: leakslope.
+        negative_slope : float, optional
+            Negative slope for leakySB (default: 0.1).
+        positive_slope : float, optional
+            Positive slope for leakySB (default: 0.05).
+        **stretch_kwargs
+            Additional arguments passed to the stretch function.
 
         Returns
         -------
@@ -196,52 +383,102 @@ class AsteriaSegmentor:
         raw_data = astro.data
         h, w = raw_data.shape
 
-        # Small image fallback
-        if tile_size <= 0 or (h <= tile_size and w <= tile_size):
-            return self.predict(astro, stretch_type=stretch_type, **stretch_kwargs)
+        resolved_stretch = _resolve_stretch_kwargs(
+            astro=astro,
+            stretch_type=stretch_type,
+            zero_points=zero_points,
+            pixel_scale=pixel_scale,
+            mmin=mmin,
+            mmax=mmax,
+            leak_slope=leak_slope,
+            negative_slope=negative_slope,
+            positive_slope=positive_slope,
+            **stretch_kwargs,
+        )
 
         t0 = time.time()
-        stretched = stretch_image(raw_data, stretch_type=stretch_type, **stretch_kwargs)
+        stretched = stretch_image(raw_data, stretch_type=stretch_type, **resolved_stretch)
         norm_3ch = np.repeat(stretched[np.newaxis, :, :], 3, axis=0)
 
-        # Plan tile grid
-        stride = tile_size - overlap
-        y_starts = list(range(0, h - tile_size + 1, stride))
-        if len(y_starts) == 0 or y_starts[-1] + tile_size < h:
-            y_starts.append(max(0, h - tile_size))
+        # Case 1: Direct full-frame inference
+        if tile_size <= 0 or (h <= tile_size and w <= tile_size):
+            pad_h = (16 - (h % 16)) % 16
+            pad_w = (16 - (w % 16)) % 16
 
-        x_starts = list(range(0, w - tile_size + 1, stride))
-        if len(x_starts) == 0 or x_starts[-1] + tile_size < w:
-            x_starts.append(max(0, w - tile_size))
+            if pad_h > 0 or pad_w > 0:
+                padded = np.pad(norm_3ch, ((0, 0), (0, pad_h), (0, pad_w)), mode="reflect")
+            else:
+                padded = norm_3ch
 
-        tile_coords: List[Tuple[int, int]] = [(ys, xs) for ys in y_starts for xs in x_starts]
-        num_tiles = len(tile_coords)
+            input_t = torch.from_numpy(padded).unsqueeze(0).to(self.device)
+            with torch.no_grad():
+                logits = self.model(input_t)
+                if isinstance(logits, list):
+                    logits = logits[-1]
+                probs = F.softmax(logits, dim=1).squeeze(0)[:, :h, :w].cpu().numpy().astype(np.float32)
+
+            pred_mask = np.argmax(probs, axis=0).astype(np.uint8)
+            elapsed = time.time() - t0
+            if verbose:
+                print(f"[asteria] Direct UNet++ inference on {w}x{h} completed in {elapsed:.2f}s on {self.device}.")
+            return pred_mask, probs, stretched
+
+        # Case 2: Tiled sliding-window inference with edge-aware cosine blending
+        tile_size = (tile_size // 16) * 16
+        overlap = min(overlap, tile_size // 4)
+
+        def _get_coords(total_len: int, size: int, ov: int) -> List[int]:
+            if total_len <= size:
+                return [0]
+            stride = size - ov
+            coords = []
+            curr = 0
+            while curr + size < total_len:
+                coords.append(curr)
+                curr += stride
+            coords.append(total_len - size)
+            return sorted(list(set(coords)))
+
+        y_coords = _get_coords(h, tile_size, overlap)
+        x_coords = _get_coords(w, tile_size, overlap)
+        num_tiles = len(y_coords) * len(x_coords)
 
         if verbose:
             print(
-                f"[asteria] Tiled UNet++ inference: {w}x{h} across {len(y_starts)}x{len(x_starts)} = "
-                f"{num_tiles} tiles (tile_size={tile_size}, overlap={overlap}, batch_size={batch_size}) on {self.device}..."
+                f"[asteria] Starting tiled UNet++ inference: {w}x{h} across {len(x_coords)}x{len(y_coords)} = {num_tiles} tiles "
+                f"(tile_size={tile_size}, overlap={overlap}, batch_size={batch_size}) on {self.device}..."
             )
 
-        prob_accum = np.zeros((3, h, w), dtype=np.float32)
-        weight_accum = np.zeros((h, w), dtype=np.float32)
-        cos_weight = _make_2d_cosine_window(tile_size)
+        prob_canvas = np.zeros((3, h, w), dtype=np.float32)
+        weight_canvas = np.zeros((h, w), dtype=np.float32)
 
-        for b_idx in range(0, num_tiles, batch_size):
-            b_coords = tile_coords[b_idx : b_idx + batch_size]
-            b_crops = [norm_3ch[:, ys : ys + tile_size, xs : xs + tile_size] for ys, xs in b_coords]
+        tile_list: List[Tuple[int, int]] = []
+        for y in y_coords:
+            for x in x_coords:
+                tile_list.append((y, x))
 
-            batch_t = torch.from_numpy(np.stack(b_crops)).to(self.device)
+        total_batches = (len(tile_list) + batch_size - 1) // batch_size
+
+        for batch_idx, i in enumerate(range(0, len(tile_list), batch_size)):
+            batch_coords = tile_list[i : i + batch_size]
+            batch_crops = [norm_3ch[:, y : y + tile_size, x : x + tile_size] for y, x in batch_coords]
+            batch_t = torch.from_numpy(np.stack(batch_crops)).to(self.device)
 
             with torch.no_grad():
                 logits = self.model(batch_t)
                 if isinstance(logits, list):
                     logits = logits[-1]
-                b_probs = F.softmax(logits, dim=1).cpu().numpy().astype(np.float32)
+                batch_probs = F.softmax(logits, dim=1).cpu().numpy().astype(np.float32)
 
-            for crop_p, (ys, xs) in zip(b_probs, b_coords):
-                prob_accum[:, ys : ys + tile_size, xs : xs + tile_size] += crop_p * cos_weight[np.newaxis, :, :]
-                weight_accum[ys : ys + tile_size, xs : xs + tile_size] += cos_weight
+            for b_idx, (y, x) in enumerate(batch_coords):
+                is_top = (y == 0)
+                is_bottom = (y == y_coords[-1])
+                is_left = (x == 0)
+                is_right = (x == x_coords[-1])
+                w2d = self._build_tile_window(tile_size, overlap, is_top, is_bottom, is_left, is_right)
+
+                prob_canvas[:, y : y + tile_size, x : x + tile_size] += batch_probs[b_idx] * w2d
+                weight_canvas[y : y + tile_size, x : x + tile_size] += w2d
 
             del batch_t, logits
             if self.device.type == "mps" and hasattr(torch.mps, "empty_cache"):
@@ -249,14 +486,18 @@ class AsteriaSegmentor:
             elif self.device.type == "cuda":
                 torch.cuda.empty_cache()
 
-        # Normalize accumulated probabilities by weights
-        weight_accum = np.maximum(weight_accum, 1e-6)
-        probs = prob_accum / weight_accum[np.newaxis, :, :]
+            if verbose and ((batch_idx + 1) % 5 == 0 or (batch_idx + 1) == total_batches):
+                print(
+                    f"[asteria]   -> Progress: batch {batch_idx + 1}/{total_batches} "
+                    f"({min(i + batch_size, len(tile_list))}/{num_tiles} tiles processed)"
+                )
+
+        probs = prob_canvas / np.maximum(weight_canvas, 1e-7)
         pred_mask = np.argmax(probs, axis=0).astype(np.uint8)
 
+        elapsed = time.time() - t0
         if verbose:
-            elapsed = time.time() - t0
-            print(f"[asteria] Tiled inference finished in {elapsed:.2f}s ({elapsed / num_tiles * 1000:.1f}ms/tile).")
+            print(f"[asteria] Tiled UNet++ inference completed in {elapsed:.2f}s ({num_tiles} tiles, {elapsed / num_tiles * 1000:.1f}ms/tile).")
 
         return pred_mask, probs, stretched
 
@@ -271,6 +512,13 @@ class AsteriaSegmentor:
         overlap: int = 64,
         batch_size: int = 2,
         stretch_type: str = "leakysb",
+        zero_points: Optional[float] = None,
+        pixel_scale: Optional[float] = None,
+        mmin: Optional[float] = None,
+        mmax: Optional[float] = None,
+        leak_slope: Optional[float] = None,
+        negative_slope: Optional[float] = None,
+        positive_slope: Optional[float] = None,
         **stretch_kwargs,
     ) -> SegmentationResult:
         """
@@ -291,6 +539,25 @@ class AsteriaSegmentor:
         overlap : int, default 64
         batch_size : int, default 2
         stretch_type : str, default 'leakysb'
+        zero_points : float, optional
+            Photometric zero point (defaults to 20.472 for Roman L2/L3 MJy/sr, 31.4 for FITS).
+            Aliases: zeropoint, zero_point, zp.
+        pixel_scale : float, optional
+            Detector plate scale in arcsec/pixel (default: 0.11 for Roman WFI).
+            Alias: pixelscale.
+        mmin : float, optional
+            Bright-end surface brightness magnitude cutoff in mag/arcsec^2 (default: 13.0).
+        mmax : float, optional
+            Faint-end surface brightness magnitude cutoff in mag/arcsec^2 (default: 32.0).
+        leak_slope : float, optional
+            Slope of linear response for negative/sub-background flux values (default: 0.05).
+            Alias: leakslope.
+        negative_slope : float, optional
+            Negative slope for leakySB (default: 0.1).
+        positive_slope : float, optional
+            Positive slope for leakySB (default: 0.05).
+        **stretch_kwargs
+            Additional stretch configuration.
 
         Returns
         -------
@@ -303,6 +570,13 @@ class AsteriaSegmentor:
             overlap=overlap,
             batch_size=batch_size,
             stretch_type=stretch_type,
+            zero_points=zero_points,
+            pixel_scale=pixel_scale,
+            mmin=mmin,
+            mmax=mmax,
+            leak_slope=leak_slope,
+            negative_slope=negative_slope,
+            positive_slope=positive_slope,
             **stretch_kwargs,
         )
         return deblend_sources(

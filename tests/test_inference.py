@@ -4,6 +4,7 @@ import numpy as np
 import pytest
 import torch
 import matplotlib.pyplot as plt
+from pathlib import Path
 
 from asteria.models.unetpp import UNetPlusPlus
 from asteria.inference.segmentor import AsteriaSegmentor
@@ -74,6 +75,44 @@ def test_predict_dense_tiling(mock_checkpoint_path):
     assert np.allclose(prob_sums, 1.0, atol=1e-3)
 
 
+def test_predict_dense_custom_leakysb_parameters(mock_checkpoint_path):
+    segmentor = AsteriaSegmentor.from_pretrained(mock_checkpoint_path, device="cpu")
+    img, _ = make_synthetic_field(size=128, seed=42)
+
+    # Test passing explicit parameters to predict_dense
+    pred_mask, probs, stretched = segmentor.predict_dense(
+        img,
+        tile_size=64,
+        overlap=16,
+        zero_points=20.472,
+        pixel_scale=0.11,
+        mmin=14.0,
+        mmax=30.0,
+        leak_slope=0.08,
+    )
+    assert pred_mask.shape == (128, 128)
+    assert stretched.min() >= 0.0
+    assert stretched.max() <= 1.0
+
+
+def test_predict_dense_leakysb_aliases(mock_checkpoint_path):
+    segmentor = AsteriaSegmentor.from_pretrained(mock_checkpoint_path, device="cpu")
+    img, _ = make_synthetic_field(size=128, seed=42)
+
+    # Test passing alias kwargs (zeropoint, pixelscale, leakslope)
+    pred_mask, probs, stretched = segmentor.predict_dense(
+        img,
+        tile_size=64,
+        overlap=16,
+        zeropoint=20.472,
+        pixelscale=0.11,
+        leakslope=0.08,
+    )
+    assert pred_mask.shape == (128, 128)
+    assert stretched.min() >= 0.0
+    assert stretched.max() <= 1.0
+
+
 def test_segment_instances(mock_checkpoint_path):
     segmentor = AsteriaSegmentor.from_pretrained(mock_checkpoint_path, device="cpu")
     img, _ = make_synthetic_field(size=128, seed=7)
@@ -103,3 +142,17 @@ def test_plot_two_panel(tmp_path):
 
     assert save_file.exists()
     assert save_file.stat().st_size > 0
+
+
+def test_load_sam2roman_gh200_checkpoint():
+    gh200_path = Path("/Users/pmsanch1/code/sam2roman/experiments/unet/gh200_3k/unetpp_best.pt")
+    if not gh200_path.exists():
+        pytest.skip("Local gh200_3k checkpoint not found")
+    segmentor = AsteriaSegmentor.from_pretrained(gh200_path, device="cpu")
+    assert segmentor.model.num_classes == 3
+    assert segmentor.model.in_channels == 3
+    x = torch.randn(1, 3, 128, 128)
+    with torch.no_grad():
+        out = segmentor.model(x)
+    assert out.shape == (1, 3, 128, 128)
+

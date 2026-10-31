@@ -8,7 +8,7 @@
 
 **Asteria** is a lightweight, high-performance deep learning inference engine and instance deblender for astronomical imaging, powered by boundary-aware **UNet++ (Nested U-Net)**.
 
-Designed for astronomical surveys like the **Nancy Grace Roman Space Telescope**, Asteria provides promptless, end-to-end source extraction that separates crowded, touching stars and galaxies in a single neural forward pass.
+Designed for the **Nancy Grace Roman Space Telescope**, Asteria provides promptless, end-to-end source extraction that separates crowded, touching stars in a single neural forward pass.
 
 ---
 
@@ -22,7 +22,7 @@ Designed for astronomical surveys like the **Nancy Grace Roman Space Telescope**
   - `2`: Deblending Boundary / Contact Interface
 - **Seamless Tiled Dense Inference (`predict_dense`)**: Sliding-window 2D Hann/cosine window blending to process arbitrary image sizes (from local cutouts up to full $4088 \times 4088$ Roman WFI exposures) with bounded memory ($< 350$ MB VRAM).
 - **Photometric LeakySB Stretch**: Non-linear surface brightness transformation that preserves stellar point-spread functions (PSFs) while lifting faint, diffuse galactic wings.
-- **Unified Astronomical I/O**: Direct support for 2D astronomical **FITS** (`.fits`, `.fits.gz`), Roman **ASDF** (`.asdf`), and raw **NumPy** arrays.
+- **Unified Astronomical I/O**: Direct support for 2D astronomical **FITS** (`.fits`, `.fits.gz`), Roman **ASDF** (`.asdf` Level 2 calibrated exposures and Level 3 mosaics via `roman_datamodels`), and raw **NumPy** arrays. Automatically converts Level 2 exposures to surface brightness units ($\text{MJy/sr}$) using calibrated photometry and enables $\text{ZP}=20.472$.
 - **Instant Deblending**: Marker-controlled watershed expansion turning dense neural predictions into discrete celestial catalogs with centroids, bounding boxes, and photometry.
 
 ---
@@ -32,11 +32,6 @@ Designed for astronomical surveys like the **Nancy Grace Roman Space Telescope**
 ### From PyPI
 ```bash
 pip install asteria
-```
-
-### With Roman ASDF Support
-```bash
-pip install "asteria[asdf]"
 ```
 
 ### From Source
@@ -101,9 +96,9 @@ asteria-predict scene.fits \
 
 ## Model Architecture & Weights History
 
-| Weight Version | Backbone | Resolution | Training Set | Epochs | Interior IoU | Edge IoU (tol=2px) | Macro IoU | Hardware |
-| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| **`v0.1.0`** (latest) | UNet++ (32-512) | $512 \times 512$ | Roman WFI F106 Synthetic | 20 | **0.816** | **0.655** | **0.732** | NASA GH200 (480GB) |
+| Weight Version | Backbone | Resolution | Training Set | Epochs | Interior IoU | Edge IoU (tol=1px) | Macro IoU | Training cutouts | Hardware |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| **`v0.1.0`** (latest) | UNet++ (32-512) | $512 \times 512$ | Roman WFI Synthetic | 80 | **0.754** | **0.513** | **0.6335** | 2800 | NASA NAS GH200 |
 
 For comprehensive architectural details and benchmark comparisons, see the [Asteria Documentation](https://asteria.readthedocs.io).
 

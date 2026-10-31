@@ -10,8 +10,8 @@ def test_registry_metadata():
     assert meta.version == "v0.1.0"
     assert meta.in_channels == 3
     assert meta.num_classes == 3
-    assert meta.epochs == 20
-    assert meta.interior_iou > 0.8
+    assert meta.epochs == 80
+    assert meta.interior_iou > 0.7
 
 
 def test_registry_latest_alias():

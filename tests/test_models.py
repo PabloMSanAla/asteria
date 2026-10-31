@@ -33,11 +33,18 @@ def test_unetpp_deep_supervision():
         deep_supervision=True,
     )
     x = torch.randn(1, 3, 64, 64)
+    model.train()
     outs = model(x)
     assert isinstance(outs, list)
     assert len(outs) == 4
     for o in outs:
         assert o.shape == (1, 3, 64, 64)
+
+    # In eval mode, returns final output tensor directly
+    model.eval()
+    out = model(x)
+    assert isinstance(out, torch.Tensor)
+    assert out.shape == (1, 3, 64, 64)
 
 
 def test_unetpp_invalid_features():
