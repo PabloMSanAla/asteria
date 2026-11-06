@@ -6,11 +6,11 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Documentation Status](https://readthedocs.org/projects/asteria/badge/?version=latest)](https://asteria.readthedocs.io/en/latest/?badge=latest)
 
-**Asteria** is a lightweight, high-performance deep learning inference engine and instance deblender for astronomical imaging, powered by boundary-aware **UNet++ (Nested U-Net)**.
+**Asteria** is a lightweight, high-performance deep learning inference engine and instance deblender for stars in astronomical imaging, powered by boundary-aware **UNet++ (Nested U-Net)**.
 
-Designed for the **Nancy Grace Roman Space Telescope**, Asteria provides promptless, end-to-end source extraction that separates crowded, touching stars in a single neural forward pass.
+Designed for the **Nancy Grace Roman Space Telescope**, Asteria provides promptless, end-to-end star detection in a single neural forward pass.
 
-![Segmentation example](https://raw.githubusercontent.com/PabloMSanAla/asteria/main/docs/_static/images/example.gif)
+![Segmentation example](https://raw.githubusercontent.com/PabloMSanAla/asteria/prepare-production/docs/_static/images/example_blinking.gif)
 
 ---
 
