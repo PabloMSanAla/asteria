@@ -147,6 +147,7 @@ def leakySB(
     y_one: float = 0.96,
     channels_last: bool = True,
     output_dtype: torch.dtype | None = torch.float64,
+    sky: float = 0.0,
 ) -> ArrayOrTensor:
     """
     Convert physical FITS fluxes (R, G, B or monochrome) into normalized surface
@@ -176,12 +177,21 @@ def leakySB(
     y_one : float, default 0.96
     channels_last : bool, default True
     output_dtype : torch.dtype or None, default torch.float64
+    sky : float, default 0.0
+        Background sky value to subtract prior to stretching.
 
     Returns
     -------
     np.ndarray or torch.Tensor
         Normalized RGB image in (0.0, 1.0).
     """
+    if sky != 0.0:
+        r = r - float(sky)
+        if g is not None and g is not r:
+            g = g - float(sky)
+        if b is not None and b is not r:
+            b = b - float(sky)
+
     if g is None:
         g = r
     if b is None:
@@ -411,6 +421,7 @@ def linear_stretch(data: np.ndarray, pmin: float = 0.5, pmax: float = 99.5) -> n
 def stretch_image(
     data: np.ndarray,
     stretch_type: str = "leakysb",
+    sky: float = 0.0,
     **kwargs,
 ) -> np.ndarray:
     """
@@ -422,7 +433,16 @@ def stretch_image(
         2D astronomical array.
     stretch_type : str, default 'leakysb'
         Algorithm: 'leakysb', 'asinh', 'linear'.
+    sky : float, default 0.0
+        Sky background value subtracted from data prior to stretching.
     """
+    # Pop any redundant 'sky' in kwargs to prevent double subtraction
+    kw_sky = kwargs.pop("sky", None)
+    eff_sky = sky if sky != 0.0 else (kw_sky if kw_sky is not None else 0.0)
+
+    if eff_sky != 0.0:
+        data = data - float(eff_sky)
+
     mode = stretch_type.lower()
     if mode in ("leakysb", "leaky_sb"):
         return leaky_surface_brightness(data, **kwargs)
@@ -432,3 +452,132 @@ def stretch_image(
         return linear_stretch(data, **kwargs)
     else:
         return leaky_surface_brightness(data, **kwargs)
+
+
+def inverse_leaky_surface_brightness(
+    data: np.ndarray,
+    zero_points: float = 31.4,
+    pixel_scale: float = 0.11,
+    mmin: float = 13.0,
+    mmax: float = 32.0,
+    negative_slope: float = 0.1,
+    positive_slope: float = 0.05,
+    sky: float = 0.0,
+    **kwargs,
+) -> np.ndarray:
+    """
+    Invert normalized Leaky Surface Brightness (leakySB) array back into physical flux.
+
+    Reconstructs physical photon fluxes from [0.0, 1.0] stretched representations,
+    adding back any subtracted background sky level.
+
+    Parameters
+    ----------
+    data : np.ndarray
+        Normalized image array in [0.0, 1.0] (2D monochrome or 3D CHW/HWC).
+    zero_points : float, default 31.4
+        Photometric zero point magnitude.
+    pixel_scale : float, default 0.11
+        Detector plate scale in arcsec/pixel.
+    mmin : float, default 13.0
+        Bright-end surface brightness magnitude cutoff.
+    mmax : float, default 32.0
+        Faint-end surface brightness magnitude cutoff.
+    negative_slope : float, default 0.1
+        Slope for faint and negative flux values.
+    positive_slope : float, default 0.05
+        Slope for bright flux values (leak_slope).
+    sky : float, default 0.0
+        Background sky level that was subtracted prior to forward stretching.
+
+    Returns
+    -------
+    np.ndarray
+        Physical flux image array in original input units (float32).
+    """
+    for k in ("zeropoint", "zero_point", "zp"):
+        if k in kwargs and kwargs[k] is not None:
+            zero_points = float(kwargs[k])
+            break
+
+    for k in ("pixelscale", "ps"):
+        if k in kwargs and kwargs[k] is not None:
+            pixel_scale = float(kwargs[k])
+            break
+
+    for k in ("leakslope", "leak_slope"):
+        if k in kwargs and kwargs[k] is not None:
+            positive_slope = float(kwargs[k])
+            break
+
+    if "negative_slope" in kwargs and kwargs["negative_slope"] is not None:
+        negative_slope = float(kwargs["negative_slope"])
+    if "positive_slope" in kwargs and kwargs["positive_slope"] is not None:
+        positive_slope = float(kwargs["positive_slope"])
+    if "sky" in kwargs and kwargs["sky"] is not None:
+        sky = float(kwargs["sky"])
+
+    arr = np.asarray(data, dtype=np.float32)
+    is_2d = arr.ndim == 2
+
+    if is_2d:
+        rgb = np.stack([arr, arr, arr], axis=-1)
+    elif arr.ndim == 3 and arr.shape[0] == 3:
+        rgb = np.transpose(arr, (1, 2, 0))
+    elif arr.ndim == 3 and arr.shape[-1] == 3:
+        rgb = arr
+    else:
+        raise ValueError(f"Expected 2D (H, W) or 3D RGB array, got shape {arr.shape}")
+
+    r, g, b = leakySB_inverse(
+        rgb,
+        zero_points=zero_points,
+        pixel_scale=pixel_scale,
+        mmin=mmin,
+        mmax=mmax,
+        negative_slope=negative_slope,
+        positive_slope=positive_slope,
+        preserve_color_ratios=True,
+    )
+
+    if is_2d:
+        flux = r + float(sky)
+    else:
+        flux = np.stack([r, g, b], axis=0 if arr.shape[0] == 3 else -1) + float(sky)
+
+    return flux.astype(np.float32)
+
+
+def inverse_stretch_image(
+    data: np.ndarray,
+    stretch_type: str = "leakysb",
+    sky: float = 0.0,
+    **kwargs,
+) -> np.ndarray:
+    """
+    Unified entry point for inverting astronomical surface brightness stretch.
+
+    Parameters
+    ----------
+    data : np.ndarray
+        Normalized image array in [0.0, 1.0].
+    stretch_type : str, default 'leakysb'
+        Algorithm name ('leakysb', 'leaky_sb').
+    sky : float, default 0.0
+        Background sky level that was subtracted prior to stretching.
+    **kwargs
+        Additional photometric parameters forwarded to inverse_leaky_surface_brightness.
+
+    Returns
+    -------
+    np.ndarray
+        Reconstructed image in physical flux units (float32).
+    """
+    kw_sky = kwargs.pop("sky", None)
+    eff_sky = sky if sky != 0.0 else (kw_sky if kw_sky is not None else 0.0)
+
+    mode = stretch_type.lower()
+    if mode in ("leakysb", "leaky_sb"):
+        return inverse_leaky_surface_brightness(data, sky=eff_sky, **kwargs)
+    else:
+        return inverse_leaky_surface_brightness(data, sky=eff_sky, **kwargs)

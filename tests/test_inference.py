@@ -7,7 +7,8 @@ import matplotlib.pyplot as plt
 from pathlib import Path
 
 from asteria.models.unetpp import UNetPlusPlus
-from asteria.inference.segmentor import AsteriaSegmentor
+from asteria.inference.segmentor import AsteriaSegmentor, _resolve_stretch_kwargs
+from asteria.io.reader import AstroImage
 from asteria.utils.synthetic import make_synthetic_field
 from asteria.visualization.plot import plot_two_panel, plot_instance_overlay
 
@@ -73,6 +74,26 @@ def test_predict_dense_tiling(mock_checkpoint_path):
     # Check probability partition of unity: sum over classes ~ 1.0
     prob_sums = np.sum(probs, axis=0)
     assert np.allclose(prob_sums, 1.0, atol=1e-3)
+
+
+def test_predict_dense_batch_size_none(mock_checkpoint_path):
+    """Verify predict_dense runs adaptively when batch_size is None."""
+    segmentor = AsteriaSegmentor.from_pretrained(mock_checkpoint_path, device="cpu")
+    img, _ = make_synthetic_field(size=256, seed=99)
+
+    pred_mask, probs, stretched = segmentor.predict_dense(
+        img,
+        tile_size=128,
+        overlap=32,
+        batch_size=None,
+        stretch_type="leakysb",
+        verbose=True,
+    )
+
+    assert pred_mask.shape == (256, 256)
+    assert probs.shape == (3, 256, 256)
+    assert stretched.shape == (256, 256)
+    assert np.allclose(np.sum(probs, axis=0), 1.0, atol=1e-3)
 
 
 def test_predict_dense_custom_leakysb_parameters(mock_checkpoint_path):
@@ -155,4 +176,28 @@ def test_load_sam2roman_gh200_checkpoint():
     with torch.no_grad():
         out = segmentor.model(x)
     assert out.shape == (1, 3, 128, 128)
+
+
+def test_resolve_stretch_kwargs_auto_pixel_scale_levels():
+    """Verify Level 2 and Level 3 images automatically set pixel_scale to 1.0."""
+    dummy_data = np.zeros((32, 32), dtype=np.float32)
+
+    # Level 2 ASDF image without explicit pixel_scale -> 1.0
+    astro_l2 = AstroImage(data=dummy_data, level=2, unit="MJy/sr", zero_point=20.472)
+    kw_l2 = _resolve_stretch_kwargs(astro=astro_l2, stretch_type="leakysb")
+    assert kw_l2["pixel_scale"] == 1.0
+
+    # Level 3 ASDF image without explicit pixel_scale -> 1.0
+    astro_l3 = AstroImage(data=dummy_data, level=3, unit="MJy/sr", zero_point=20.472)
+    kw_l3 = _resolve_stretch_kwargs(astro=astro_l3, stretch_type="leakysb")
+    assert kw_l3["pixel_scale"] == 1.0
+
+    # Non-level image without explicit pixel_scale -> not forced to 1.0
+    astro_fits = AstroImage(data=dummy_data, level=None, unit="DN/s", zero_point=31.4)
+    kw_fits = _resolve_stretch_kwargs(astro=astro_fits, stretch_type="leakysb")
+    assert "pixel_scale" not in kw_fits
+
+    # Explicit override takes precedence over auto 1.0
+    kw_override = _resolve_stretch_kwargs(astro=astro_l2, stretch_type="leakysb", pixel_scale=0.11)
+    assert kw_override["pixel_scale"] == 0.11
 

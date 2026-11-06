@@ -8,6 +8,8 @@ from asteria.stretch.leakysb import (
     asinh_stretch,
     linear_stretch,
     stretch_image,
+    inverse_leaky_surface_brightness,
+    inverse_stretch_image,
 )
 from asteria.utils.synthetic import make_synthetic_field
 
@@ -62,3 +64,41 @@ def test_stretch_image_dispatch():
     assert s1.shape == (64, 64)
     assert s2.shape == (64, 64)
     assert s3.shape == (64, 64)
+
+
+def test_stretch_image_sky_subtraction():
+    """Verify sky subtraction prior to stretching."""
+    raw_img, _ = make_synthetic_field(size=64, seed=42)
+    sky_val = 15.0
+
+    s_with_sky = stretch_image(raw_img, stretch_type="leakysb", sky=sky_val)
+    s_manual = stretch_image(raw_img - sky_val, stretch_type="leakysb", sky=0.0)
+
+    assert np.allclose(s_with_sky, s_manual, atol=1e-5)
+
+
+def test_inverse_leaky_surface_brightness_roundtrip():
+    """Verify exact 2D roundtrip through forward LeakySB and inverse LeakySB."""
+    raw_img, _ = make_synthetic_field(size=64, seed=42)
+    zp = 31.4
+    ps = 0.11
+
+    stretched = leaky_surface_brightness(raw_img, zero_points=zp, pixel_scale=ps)
+    reconstructed = inverse_leaky_surface_brightness(stretched, zero_points=zp, pixel_scale=ps)
+
+    assert reconstructed.shape == raw_img.shape
+    assert reconstructed.dtype == np.float32
+    # Check close match across physical flux range
+    assert np.allclose(reconstructed, raw_img, atol=1e-2)
+
+
+def test_inverse_stretch_image_with_sky():
+    """Verify that inverse_stretch_image restores original baseline with sky added back."""
+    raw_img, _ = make_synthetic_field(size=64, seed=77)
+    sky_val = 12.5
+
+    stretched = stretch_image(raw_img, stretch_type="leakysb", sky=sky_val)
+    reconstructed = inverse_stretch_image(stretched, stretch_type="leakysb", sky=sky_val)
+
+    assert reconstructed.shape == raw_img.shape
+    assert np.allclose(reconstructed, raw_img, atol=1e-2)

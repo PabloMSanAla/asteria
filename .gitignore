@@ -31,7 +31,8 @@ htmlcov/
 *.tar
 *.tar.gz
 data/
-weights/
+/weights/
+!src/asteria/weights/
 .cache/
 
 # Sphinx docs build
@@ -47,3 +48,15 @@ docs/build/
 # Untracked developer notes & guidelines
 guidelines.md
 *guidelines*.md
+
+# Agent memory & guidelines (kept locally for next sessions, excluded from git)
+MEMORY.md
+*memory*.md
+AGENTS.md
+*agent*.md
+.agents/
+.agent/
+_agents/
+_agent/
+GEMINI.md
+*gemini*.md

@@ -7,6 +7,8 @@ from asteria.stretch.leakysb import (
     asinh_stretch,
     linear_stretch,
     stretch_image,
+    inverse_leaky_surface_brightness,
+    inverse_stretch_image,
 )
 
 __all__ = [
@@ -16,4 +18,6 @@ __all__ = [
     "asinh_stretch",
     "linear_stretch",
     "stretch_image",
+    "inverse_leaky_surface_brightness",
+    "inverse_stretch_image",
 ]

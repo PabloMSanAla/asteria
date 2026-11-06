@@ -37,6 +37,7 @@ class SegmentationResult:
     scores: List[float] = field(default_factory=list)
     areas: List[int] = field(default_factory=list)
     segmap: np.ndarray = field(default_factory=lambda: np.zeros((0, 0), dtype=np.int32))
+    sky_centroids: Optional[List[Tuple[float, float]]] = None
 
     def __len__(self) -> int:
         return len(self.masks)

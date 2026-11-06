@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Optional, Union, Tuple, Any, Dict
 import numpy as np
 from astropy.io import fits
+from astropy.stats import sigma_clipped_stats
 
 logger = logging.getLogger(__name__)
 
@@ -66,6 +67,8 @@ class AstroImage:
     zero_point: float = 31.4
     unit: str = "DN/s"
     level: Optional[int] = None
+    sky: float = 0.0
+    pixel_scale: Optional[float] = None
 
     @property
     def shape(self) -> Tuple[int, int]:
@@ -82,7 +85,22 @@ class AstroImage:
         raise ValueError(f"WCS object of type {type(self.wcs)} does not support coordinate conversion.")
 
 
-def load_image(image: Union[str, Path, np.ndarray, AstroImage], zero_point: float = None) -> AstroImage:
+def _measure_sky_median(data: np.ndarray) -> float:
+    """Measure background sky value using astropy sigma_clipped_stats median."""
+    finite = data[np.isfinite(data)]
+    if len(finite) == 0:
+        return 0.0
+    _, med, _ = sigma_clipped_stats(finite)
+    return float(med)
+
+
+def load_image(
+    image: Union[str, Path, np.ndarray, AstroImage],
+    zero_point: Optional[float] = None,
+    sky: Optional[float] = None,
+    level: Optional[int] = None,
+    pixel_scale: Optional[float] = None,
+) -> AstroImage:
     """
     Ingest an astronomical image from a file path or array.
 
@@ -90,6 +108,17 @@ def load_image(image: Union[str, Path, np.ndarray, AstroImage], zero_point: floa
     ----------
     image : str, Path, np.ndarray, or AstroImage
         Path to .fits, .fits.gz, or .asdf file, or a 2D NumPy array.
+    zero_point : float, optional
+        Photometric zero point override.
+    sky : float, optional
+        Sky background value to subtract before stretching. If None, defaults to 0.0,
+        except for Roman Level 2 exposures where it is automatically estimated via
+        astropy.stats.sigma_clipped_stats median.
+    level : int, optional
+        Product level override (e.g. 2 for Level 2 exposure).
+    pixel_scale : float, optional
+        Detector pixel plate scale in arcsec/pixel. Automatically defaults to 1.0
+        for Roman Level 2 and Level 3 ASDF surface brightness products (MJy/sr).
 
     Returns
     -------
@@ -97,16 +126,33 @@ def load_image(image: Union[str, Path, np.ndarray, AstroImage], zero_point: floa
         Normalized astronomical image container.
     """
     if isinstance(image, AstroImage):
+        if sky is not None:
+            image.sky = float(sky)
+        if pixel_scale is not None:
+            image.pixel_scale = float(pixel_scale)
         return image
 
     if isinstance(image, np.ndarray):
         if image.ndim != 2:
             raise ValueError(f"Expected 2D array, got shape {image.shape}")
+        arr_data = np.ascontiguousarray(image, dtype=np.float32)
+        if level == 2 and sky is None:
+            resolved_sky = _measure_sky_median(arr_data)
+        elif sky is not None:
+            resolved_sky = float(sky)
+        else:
+            resolved_sky = 0.0
+
+        resolved_ps = float(pixel_scale) if pixel_scale is not None else (1.0 if level in (2, 3) else None)
+
         return AstroImage(
-            data=np.ascontiguousarray(image, dtype=np.float32),
+            data=arr_data,
             file_type="array",
             zero_point=zero_point if zero_point is not None else 31.4,
             unit="DN/s",
+            level=level,
+            sky=resolved_sky,
+            pixel_scale=resolved_ps,
         )
 
     path = Path(image)
@@ -247,6 +293,18 @@ def load_image(image: Union[str, Path, np.ndarray, AstroImage], zero_point: floa
         if data.ndim != 2:
             raise ValueError(f"Expected 2D image data in ASDF, got shape {data.shape}")
 
+        if level == 2 and sky is None:
+            resolved_sky = _measure_sky_median(data)
+            logger.info(
+                f"[asteria] Roman Level 2 image: measured background sky={resolved_sky:.6e} using sigma_clipped_stats median."
+            )
+        elif sky is not None:
+            resolved_sky = float(sky)
+        else:
+            resolved_sky = 0.0
+
+        resolved_ps = float(pixel_scale) if pixel_scale is not None else (1.0 if level in (2, 3) else None)
+
         return AstroImage(
             data=np.ascontiguousarray(data, dtype=np.float32),
             header=header_meta,
@@ -256,6 +314,8 @@ def load_image(image: Union[str, Path, np.ndarray, AstroImage], zero_point: floa
             zero_point=zero_point,
             unit=unit,
             level=level,
+            sky=resolved_sky,
+            pixel_scale=resolved_ps,
         )
 
     # Standard FITS Format (.fits, .fits.gz)
@@ -281,6 +341,26 @@ def load_image(image: Union[str, Path, np.ndarray, AstroImage], zero_point: floa
         if data_arr is None:
             raise ValueError(f"No valid 2D image HDU found in FITS file: {path}")
 
+        fits_level = level
+        if fits_level is None and target_header is not None:
+            prod_lvl = target_header.get("PROD_LVL", target_header.get("LEVEL", None))
+            if prod_lvl in (2, "2", "L2", "LEVEL2", "level2"):
+                fits_level = 2
+            elif prod_lvl in (3, "3", "L3", "LEVEL3", "level3"):
+                fits_level = 3
+
+        if fits_level == 2 and sky is None:
+            resolved_sky = _measure_sky_median(data_arr)
+            logger.info(
+                f"[asteria] Level 2 FITS image: measured background sky={resolved_sky:.6e} using sigma_clipped_stats median."
+            )
+        elif sky is not None:
+            resolved_sky = float(sky)
+        else:
+            resolved_sky = 0.0
+
+        resolved_fits_ps = float(pixel_scale) if pixel_scale is not None else (1.0 if fits_level in (2, 3) else None)
+
         return AstroImage(
             data=np.ascontiguousarray(data_arr, dtype=np.float32),
             header=target_header,
@@ -289,6 +369,8 @@ def load_image(image: Union[str, Path, np.ndarray, AstroImage], zero_point: floa
             path=path,
             zero_point=zero_point if zero_point is not None else 31.4,
             unit="DN/s",
-            level=None,
+            level=fits_level,
+            sky=resolved_sky,
+            pixel_scale=resolved_fits_ps,
         )
 

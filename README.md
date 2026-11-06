@@ -10,6 +10,8 @@
 
 Designed for the **Nancy Grace Roman Space Telescope**, Asteria provides promptless, end-to-end source extraction that separates crowded, touching stars in a single neural forward pass.
 
+![Segmentation example](https://raw.githubusercontent.com/PabloMSanAla/asteria/main/docs/_static/images/example.gif)
+
 ---
 
 ## Key Features
