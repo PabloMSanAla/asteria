@@ -20,6 +20,8 @@ ENV/
 .pytest_cache/
 .coverage
 htmlcov/
+coverage.xml
+*.xml
 
 # Weights & Large Data (Never commit real weights or data files)
 *.pt
