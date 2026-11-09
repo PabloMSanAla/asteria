@@ -129,3 +129,25 @@ def test_cli_sky_flag(cli_test_setup, tmp_path):
     assert ret == 0
     assert out_png.exists()
     assert out_png.stat().st_size > 0
+
+
+def test_cli_pixel_clarity_no_display(cli_test_setup, monkeypatch):
+    """Verify --no_clarity suppresses pixel clarity launcher."""
+    import asteria.cli as cli
+
+    clarity_called = []
+    monkeypatch.setattr(cli, "open_pixel_clarity", lambda **kwargs: clarity_called.append(kwargs))
+
+    fits_path, ckpt_path = cli_test_setup
+    argv = [
+        str(fits_path),
+        "--checkpoint", str(ckpt_path),
+        "--device", "cpu",
+        "--tile_size", "128",
+        "--overlap", "32",
+        "--no_clarity",
+    ]
+
+    ret = main(argv)
+    assert ret == 0
+    assert len(clarity_called) == 0

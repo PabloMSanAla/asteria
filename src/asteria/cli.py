@@ -140,8 +140,18 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--no_display",
+        "--no_clarity",
+        dest="no_display",
         action="store_true",
-        help="Suppress interactive matplotlib display window.",
+        help="Suppress interactive Pixel Clarity display window.",
+    )
+    parser.add_argument(
+        "--clarity",
+        "--pixel_clarity",
+        dest="clarity",
+        action="store_true",
+        default=True,
+        help="Launch interactive Pixel Clarity display window (enabled by default; use --no_display or --no_clarity to disable).",
     )
     parser.add_argument(
         "--version",
@@ -259,7 +269,7 @@ def main(argv=None) -> int:
         hdul.writeto(str(export_p), overwrite=True)
         print(f"Saved multi-extension FITS to: {export_p.resolve()}")
 
-    if not args.no_display:
+    if not args.no_display and getattr(args, "clarity", True):
         print(f"\n[asteria] Opening interactive view with Pixel Clarity (stretched exposure & mask/edge overlay)...")
         open_pixel_clarity(
             stretched=stretched,
