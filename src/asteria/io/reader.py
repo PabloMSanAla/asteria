@@ -5,12 +5,16 @@ Astronomical image reader supporting FITS (.fits, .fits.gz), Roman ASDF (.asdf),
 from __future__ import annotations
 
 import logging
+import re
+import tempfile
+import urllib.parse
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional, Union, Tuple, Any, Dict
 import numpy as np
 from astropy.io import fits
 from astropy.stats import sigma_clipped_stats
+from tqdm import tqdm
 
 logger = logging.getLogger(__name__)
 
@@ -58,6 +62,8 @@ class AstroImage:
         Physical unit of data array ('DN/s', 'MJy/sr', etc.).
     level : Optional[int]
         Roman data product level (2 for Level 2 calibrated exposure, 3 for Level 3 mosaic, None otherwise).
+    s3_url : Optional[str]
+        Original AWS S3 URL if loaded from cloud storage.
     """
     data: np.ndarray
     header: Optional[dict] = None
@@ -69,6 +75,7 @@ class AstroImage:
     level: Optional[int] = None
     sky: float = 0.0
     pixel_scale: Optional[float] = None
+    s3_url: Optional[str] = None
 
     @property
     def shape(self) -> Tuple[int, int]:
@@ -83,6 +90,159 @@ class AstroImage:
         elif callable(self.wcs):
             return self.wcs(x, y)
         raise ValueError(f"WCS object of type {type(self.wcs)} does not support coordinate conversion.")
+
+
+
+_S3_URI_PATTERN = re.compile(r"^s3a?://([^/]+)/(.+)$", re.IGNORECASE)
+_S3_HTTP_PATTERN = re.compile(
+    r"^https?://(?:(?P<bucket_virtual>[a-z0-9.\-_]+)\.s3(?:[.\-][a-z0-9\-_]+)?\.amazonaws\.com/(?P<key_virtual>.+)|s3(?:[.\-][a-z0-9\-_]+)?\.amazonaws\.com/(?P<bucket_path>[^/]+)/(?P<key_path>.+))$",
+    re.IGNORECASE,
+)
+
+
+def is_s3_url(url: Union[str, Path]) -> bool:
+    """
+    Check if the given string or Path is an Amazon S3 URI or URL.
+
+    Supported patterns:
+      - s3://bucket/key... or s3a://bucket/key...
+      - https://bucket.s3.amazonaws.com/key...
+      - https://bucket.s3.region.amazonaws.com/key...
+      - https://s3.region.amazonaws.com/bucket/key...
+      - https://s3.amazonaws.com/bucket/key...
+    """
+    s = str(url).strip()
+    if _S3_URI_PATTERN.match(s):
+        return True
+    if _S3_HTTP_PATTERN.match(s):
+        return True
+    return False
+
+
+def parse_s3_url(url: Union[str, Path]) -> Tuple[str, str]:
+    """
+    Parse an S3 URI or URL into (bucket_name, object_key).
+
+    Parameters
+    ----------
+    url : str or Path
+        S3 URI or S3 HTTP(S) URL.
+
+    Returns
+    -------
+    Tuple[str, str]
+        (bucket_name, object_key)
+
+    Raises
+    ------
+    ValueError
+        If the input is not a recognized S3 URI or URL.
+    """
+    s = str(url).strip()
+    m_uri = _S3_URI_PATTERN.match(s)
+    if m_uri:
+        bucket = m_uri.group(1)
+        key = urllib.parse.unquote(m_uri.group(2))
+        return bucket, key
+
+    m_http = _S3_HTTP_PATTERN.match(s)
+    if m_http:
+        gd = m_http.groupdict()
+        if gd.get("bucket_virtual"):
+            bucket = gd["bucket_virtual"]
+            key = urllib.parse.unquote(gd["key_virtual"])
+        else:
+            bucket = gd["bucket_path"]
+            key = urllib.parse.unquote(gd["key_path"])
+        if "?" in key:
+            key = key.split("?", 1)[0]
+        if "#" in key:
+            key = key.split("#", 1)[0]
+        return bucket, key
+
+    raise ValueError(f"Not a valid S3 URL or URI: '{url}'")
+
+
+def download_s3_file(
+    s3_url: Union[str, Path],
+    destination: Optional[Union[str, Path]] = None,
+    client: Optional[Any] = None,
+    show_progress: bool = True,
+) -> Path:
+    """
+    Download an astronomical file from Amazon S3 to a local file.
+
+    Parameters
+    ----------
+    s3_url : str or Path
+        S3 URI (s3://bucket/key) or S3 HTTPS URL.
+    destination : str or Path, optional
+        Local destination path. If None, a temporary file with the appropriate
+        extension (.asdf, .fits, .fits.gz, etc.) is created.
+    client : boto3.client, optional
+        Existing boto3 S3 client. If None, creates a default boto3.client('s3').
+    show_progress : bool, default=True
+        Whether to display a tqdm progress bar during download.
+
+    Returns
+    -------
+    Path
+        Local path to the downloaded file.
+    """
+    bucket, key = parse_s3_url(s3_url)
+
+    if destination is not None:
+        dest_path = Path(destination)
+        dest_path.parent.mkdir(parents=True, exist_ok=True)
+    else:
+        lower_key = key.lower()
+        if lower_key.endswith(".fits.gz"):
+            suffix = ".fits.gz"
+        elif lower_key.endswith(".asdf"):
+            suffix = ".asdf"
+        elif lower_key.endswith(".fits"):
+            suffix = ".fits"
+        else:
+            suffix = Path(key).suffix or ".tmp"
+
+        temp_f = tempfile.NamedTemporaryFile(prefix="asteria_s3_", suffix=suffix, delete=False)
+        temp_f.close()
+        dest_path = Path(temp_f.name)
+
+    if client is None:
+        try:
+            import boto3
+        except ImportError as e:
+            raise ImportError(
+                "AWS S3 support requires 'boto3'. Install it using: pip install boto3"
+            ) from e
+        client = boto3.client("s3")
+
+    logger.info(f"Downloading s3://{bucket}/{key} to {dest_path}...")
+    try:
+        head = client.head_object(Bucket=bucket, Key=key)
+        total_bytes = head.get("ContentLength", 0)
+    except Exception:
+        total_bytes = 0
+
+    if show_progress and total_bytes > 0:
+        with tqdm(
+            total=total_bytes,
+            unit="B",
+            unit_scale=True,
+            unit_divisor=1024,
+            desc=f"S3: {Path(key).name}",
+        ) as pbar:
+            client.download_file(
+                Bucket=bucket,
+                Key=key,
+                Filename=str(dest_path),
+                Callback=pbar.update,
+            )
+    else:
+        client.download_file(Bucket=bucket, Key=key, Filename=str(dest_path))
+
+    return dest_path
 
 
 def _measure_sky_median(data: np.ndarray) -> float:
@@ -155,9 +315,15 @@ def load_image(
             pixel_scale=resolved_ps,
         )
 
-    path = Path(image)
-    if not path.exists():
-        raise FileNotFoundError(f"Astronomical image not found at: {path}")
+    original_s3_url: Optional[str] = None
+    if isinstance(image, (str, Path)) and is_s3_url(image):
+        original_s3_url = str(image)
+        logger.info(f"[asteria] Detected S3 URL: {original_s3_url}. Downloading to local storage...")
+        path = download_s3_file(original_s3_url)
+    else:
+        path = Path(image)
+        if not path.exists():
+            raise FileNotFoundError(f"Astronomical image not found at: {path}")
 
     suffix = path.name.lower()
 
@@ -316,6 +482,7 @@ def load_image(
             level=level,
             sky=resolved_sky,
             pixel_scale=resolved_ps,
+            s3_url=original_s3_url,
         )
 
     # Standard FITS Format (.fits, .fits.gz)
@@ -372,5 +539,6 @@ def load_image(
             level=fits_level,
             sky=resolved_sky,
             pixel_scale=resolved_fits_ps,
+            s3_url=original_s3_url,
         )
 

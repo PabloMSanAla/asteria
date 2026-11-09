@@ -31,7 +31,13 @@ from asteria.inference.device import (
     get_adaptive_batch_size,
     empty_device_cache,
 )
-from asteria.io.reader import AstroImage, load_image
+from asteria.io.reader import (
+    AstroImage,
+    load_image,
+    is_s3_url,
+    parse_s3_url,
+    download_s3_file,
+)
 from asteria.stretch.leakysb import (
     leaky_surface_brightness,
     asinh_stretch,
@@ -61,7 +67,7 @@ from asteria.weights.starnet3_manager import (
     resolve_starnet3_checkpoint_path,
 )
 
-__version__ = "0.1.2"
+__version__ = "0.1.3"
 __author__ = "Pablo M. Sanchez-Alarcon"
 __license__ = "MIT"
 
@@ -163,6 +169,9 @@ __all__ = [
     "download_starnet3_model",
     "resolve_starnet3_checkpoint_path",
     "load_image",
+    "is_s3_url",
+    "parse_s3_url",
+    "download_s3_file",
     "stretch_image",
     "inverse_stretch_image",
     "inverse_leaky_surface_brightness",

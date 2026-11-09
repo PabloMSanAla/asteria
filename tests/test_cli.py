@@ -151,3 +151,33 @@ def test_cli_pixel_clarity_no_display(cli_test_setup, monkeypatch):
     ret = main(argv)
     assert ret == 0
     assert len(clarity_called) == 0
+
+
+def test_cli_s3_url(cli_test_setup, tmp_path, monkeypatch):
+    """Verify CLI accepts and processes s3:// URL without FileNotFoundError."""
+    import asteria.cli as cli
+    from asteria.io.reader import AstroImage
+
+    fits_path, ckpt_path = cli_test_setup
+    out_png = tmp_path / "cli_s3_output.png"
+
+    from asteria.io.reader import load_image as real_load_image
+    real_astro = real_load_image(fits_path)
+
+    # Mock load_image so it doesn't make real network calls
+    monkeypatch.setattr(cli, "load_image", lambda path, **kwargs: real_astro)
+
+    argv = [
+        "s3://roman-stsci/survey/test_l2.asdf",
+        "--checkpoint", str(ckpt_path),
+        "--device", "cpu",
+        "--tile_size", "128",
+        "--overlap", "32",
+        "--output", str(out_png),
+        "--no_display",
+    ]
+
+    ret = main(argv)
+    assert ret == 0
+    assert out_png.exists()
+

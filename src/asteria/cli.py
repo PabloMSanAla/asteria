@@ -21,7 +21,7 @@ from asteria.visualization.clarity import (
 )
 from asteria.inference.segmentor import _resolve_stretch_kwargs
 from asteria.stretch.leakysb import inverse_leaky_surface_brightness
-from asteria.io.reader import load_image
+from asteria.io.reader import load_image, is_s3_url
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -173,19 +173,26 @@ def main(argv=None) -> int:
         parser.print_help()
         return 0
 
-    image_path = Path(args.image)
-    if not image_path.exists():
-        print(f"Error: Astronomical image not found: {image_path}", file=sys.stderr)
-        return 1
+    image_str = str(args.image)
+    if is_s3_url(image_str):
+        image_input = image_str
+        display_name = image_str.rstrip("/").split("/")[-1]
+    else:
+        image_path = Path(image_str)
+        if not image_path.exists():
+            print(f"Error: Astronomical image not found: {image_path}", file=sys.stderr)
+            return 1
+        image_input = image_path
+        display_name = image_path.name
 
     print("=" * 65)
     print(f"  Asteria Astronomical Inference Engine (v{__version__})")
     print("=" * 65)
-    print(f"Input Image:   {image_path}")
+    print(f"Input Image:   {image_input}")
     print(f"Checkpoint:    {args.checkpoint}")
 
     # Load image
-    astro = load_image(image_path, sky=args.sky)
+    astro = load_image(image_input, sky=args.sky)
     h, w = astro.data.shape
     print(f"Dimensions:    {w} × {h} pixels ({w * h / 1e6:.2f} Megapixels)")
     if astro.level is not None:
@@ -267,7 +274,7 @@ def main(argv=None) -> int:
         open_pixel_clarity(
             stretched=stretched,
             pred_mask=pred_mask,
-            title=f"Asteria UNet++: {image_path.name}",
+            title=f"Asteria UNet++: {display_name}",
         )
 
     return 0

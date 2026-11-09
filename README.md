@@ -30,7 +30,7 @@
   - `2`: Deblending Boundary / Contact Interface
 - **Seamless Tiled Dense Inference (`predict_dense`)**: Sliding-window 2D Hann/cosine window blending to process arbitrary image sizes (from local cutouts up to full $4088 \times 4088$ Roman WFI exposures) with bounded memory ($< 350$ MB VRAM).
 - **Photometric LeakySB Stretch**: Non-linear surface brightness transformation that preserves stellar point-spread functions (PSFs) while lifting faint, diffuse galactic wings.
-- **Unified Astronomical I/O**: Direct support for 2D astronomical **FITS** (`.fits`, `.fits.gz`), Roman **ASDF** (`.asdf` Level 2 calibrated exposures and Level 3 mosaics via `roman_datamodels`), and raw **NumPy** arrays. Automatically converts Level 2 exposures to surface brightness units ($\text{MJy/sr}$) using calibrated photometry and enables $\text{ZP}=20.472$.
+- **Unified Astronomical I/O & Cloud Storage**: Direct support for 2D astronomical **FITS** (`.fits`, `.fits.gz`), Roman **ASDF** (`.asdf` Level 2 calibrated exposures and Level 3 mosaics via `roman_datamodels`), raw **NumPy** arrays, and **Amazon Web Services (AWS) S3** URLs (`s3://bucket/key...` or HTTPS S3 URLs). Automatically converts Level 2 exposures to surface brightness units ($\text{MJy/sr}$) using calibrated photometry and enables $\text{ZP}=20.472$.
 
 ---
 
@@ -60,9 +60,9 @@ import asteria
 # 1. Load pre-trained model (auto-downloads weights on first run, auto-selects device)
 segmentor = asteria.load_model("latest")
 
-# 2. Run dense 3-class segmentation inference on a FITS or ASDF exposure
+# 2. Run dense 3-class segmentation inference on a local file or AWS S3 URL
 pred_mask, probs, stretched = segmentor.predict_dense(
-    "scene_0001_F106.fits",
+    "s3://my-roman-bucket/exposures/r0000101_wfi.asdf",  # or local "scene_0001_F106.fits"
     tile_size=512,
     overlap=64,
 )
@@ -80,8 +80,11 @@ fig = asteria.plot_two_panel(
 Asteria includes the `asteria` (and `asteria-predict`) CLI command:
 
 ```bash
-# Basic prediction and display
-asteria scene.fits
+# Pre-download official weights for offline/cloud deployment
+asteria --download
+
+# Basic prediction and display (local file or S3 URI)
+asteria s3://my-roman-bucket/exposures/r0000101_wfi.asdf
 
 # Full-field tiled inference with saving and FITS export
 asteria scene.fits \
