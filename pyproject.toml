@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "asteria-roman"
-version = "0.1.1"
+version = "0.1.2"
 description = "Lightweight astronomical deep learning inference engine and instance deblender powered by boundary-aware UNet++"
 readme = "README.md"
 license = "MIT"
@@ -61,7 +61,6 @@ dev = [
 [project.scripts]
 asteria = "asteria.cli:main"
 asteria-predict = "asteria.cli:main"
-starnet3 = "asteria.cli:starnet3_main"
 
 [project.urls]
 Homepage = "https://github.com/PabloMSanAla/asteria"
