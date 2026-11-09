@@ -134,24 +134,6 @@ def test_predict_dense_leakysb_aliases(mock_checkpoint_path):
     assert stretched.max() <= 1.0
 
 
-def test_segment_instances(mock_checkpoint_path):
-    segmentor = AsteriaSegmentor.from_pretrained(mock_checkpoint_path, device="cpu")
-    img, _ = make_synthetic_field(size=128, seed=7)
-
-    result = segmentor.segment(
-        img,
-        interior_thresh=0.3,
-        fg_thresh=0.3,
-        min_area=4,
-        tile_size=128,
-        overlap=32,
-    )
-    assert isinstance(result.masks, list)
-    assert isinstance(result.boxes, list)
-    assert isinstance(result.centroids, list)
-    assert result.segmap.shape == (128, 128)
-
-
 def test_plot_two_panel(tmp_path):
     h, w = 128, 128
     stretched = np.random.uniform(0.0, 1.0, (h, w)).astype(np.float32)

@@ -38,8 +38,8 @@ Version 0.1.0 (Initial Public Release)
 
 * **Release Date**: October 31, 2026
 * **Weights Checkpoint**: `unetpp_v0.1.0.pt`
-* **SHA-256 Checksum**: ``4cf74fa624bda2f9bf2cce6bb79e5a8fc223e9a119e735e054ba5f516a75f564``
-* **Download URL**: `GitHub Release v0.1.0 <https://github.com/PabloMSanAla/asteria/releases/download/v0.1.0/unetpp_best.pt>`_
+* **SHA-256 Checksum**: ``71feeee2bc372693c361c234d2c114a1cc2d0805e03bc9e2c1c95004b3d21df4``
+* **Download URL**: `Google Drive Checkpoint <https://drive.google.com/file/d/1HfPMtcR0jjEfHIlAC-gEWAQeIFoljBwC/view?usp=sharing>`_
 
 Model Specifications
 ^^^^^^^^^^^^^^^^^^^^

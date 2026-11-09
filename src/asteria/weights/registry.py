@@ -35,8 +35,8 @@ WEIGHT_REGISTRY: Dict[str, WeightMetadata] = {
     "v0.1.0": WeightMetadata(
         version="v0.1.0",
         filename="unetpp_v0.1.0.pt",
-        url="https://github.com/PabloMSanAla/asteria/releases/download/v0.1.0/unetpp_best.pt",
-        sha256="4cf74fa624bda2f9bf2cce6bb79e5a8fc223e9a119e735e054ba5f516a75f564",
+        url="https://drive.google.com/file/d/1HfPMtcR0jjEfHIlAC-gEWAQeIFoljBwC/view?usp=sharing",
+        sha256="71feeee2bc372693c361c234d2c114a1cc2d0805e03bc9e2c1c95004b3d21df4",
         in_channels=3,
         num_classes=3,
         features=(32, 64, 128, 256, 512),

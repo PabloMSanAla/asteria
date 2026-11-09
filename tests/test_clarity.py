@@ -12,9 +12,6 @@ from asteria.visualization.clarity import (
     create_mask_edge_overlay,
     show_pixel_clarity,
     open_pixel_clarity,
-    show_starnet_clarity,
-    open_starnet_clarity,
-    _prepare_starnet_mef,
     HAS_PIXEL_CLARITY,
 )
 
@@ -176,87 +173,3 @@ def test_open_pixel_clarity_side_by_side(tmp_path, monkeypatch):
     assert isinstance(args[0], list) and len(args[0]) == 2
     assert kwargs.get("layout") == "grid"
     assert kwargs.get("names") == ["Mask & Edge Overlay", "Stretched Exposure"]
-
-
-def test_prepare_starnet_mef(tmp_path):
-    """Verify serialization of 2-HDU multi-extension FITS with raw data and starless flux."""
-    from astropy.io import fits
-    h, w = 32, 32
-    raw = np.full((h, w), 10.0, dtype=np.float32)
-    starless_flux = np.full((h, w), 2.5, dtype=np.float32)
-
-    save_path = tmp_path / "custom_starnet.fits"
-    out_path = _prepare_starnet_mef(raw, starless_flux, save_path=save_path)
-    assert out_path == save_path
-    assert out_path.exists()
-
-    with fits.open(out_path) as hdul:
-        assert len(hdul) == 2
-        # Primary HDU: raw un-stretched
-        assert hdul[0].header.get("EXTNAME") == "ORIGINAL"
-        assert np.allclose(hdul[0].data, 10.0)
-        # Image HDU: starless prediction
-        assert hdul[1].name == "STARLESS"
-        assert np.allclose(hdul[1].data, 2.5)
-
-
-@pytest.mark.skipif(not HAS_PIXEL_CLARITY, reason="pixel-clarity not installed")
-def test_open_starnet_clarity(monkeypatch):
-    """Verify open_starnet_clarity forwards 2-HDU multi-extension FITS to pixel_clarity.popup."""
-    import pixel_clarity as pc
-    from astropy.io import fits
-
-    mock_calls = []
-
-    def mock_popup(*args, **kwargs):
-        mock_calls.append((args, kwargs))
-        return "mock_popup_controller"
-
-    monkeypatch.setattr(pc, "popup", mock_popup)
-
-    raw = np.full((16, 16), 15.0, dtype=np.float32)
-    starless_flux = np.full((16, 16), 3.0, dtype=np.float32)
-
-    res = open_starnet_clarity(raw, starless_flux, title="Test StarNet Popup")
-    assert res == "mock_popup_controller"
-    assert len(mock_calls) == 1
-    args, kwargs = mock_calls[0]
-    fits_path = args[0]
-    assert isinstance(fits_path, str)
-    assert fits_path.endswith(".fits")
-
-    with fits.open(fits_path) as hdul:
-        assert len(hdul) == 2
-        assert hdul[0].header.get("EXTNAME") == "ORIGINAL"
-        assert hdul[1].name == "STARLESS"
-
-
-@pytest.mark.skipif(not HAS_PIXEL_CLARITY, reason="pixel-clarity not installed")
-def test_show_starnet_clarity(monkeypatch):
-    """Verify show_starnet_clarity forwards 2-HDU multi-extension FITS to pixel_clarity.show."""
-    import pixel_clarity as pc
-    from astropy.io import fits
-
-    mock_calls = []
-
-    def mock_show(*args, **kwargs):
-        mock_calls.append((args, kwargs))
-        return "mock_viewer_controller"
-
-    monkeypatch.setattr(pc, "show", mock_show)
-
-    raw = np.full((16, 16), 15.0, dtype=np.float32)
-    starless_flux = np.full((16, 16), 3.0, dtype=np.float32)
-
-    res = show_starnet_clarity(raw, starless_flux, title="Test StarNet Show")
-    assert res == "mock_viewer_controller"
-    assert len(mock_calls) == 1
-    args, kwargs = mock_calls[0]
-    fits_path = args[0]
-    assert isinstance(fits_path, str)
-    assert fits_path.endswith(".fits")
-
-    with fits.open(fits_path) as hdul:
-        assert len(hdul) == 2
-        assert hdul[0].header.get("EXTNAME") == "ORIGINAL"
-        assert hdul[1].name == "STARLESS"

@@ -23,7 +23,7 @@ from asteria.inference.center_offset import (
     deblend_center_offset,
     extract_center_peaks,
 )
-from asteria.inference.watershed import deblend_sources, SegmentationResult
+from asteria.inference.results import SegmentationResult
 from asteria.inference.device import (
     get_optimal_device,
     get_device_info,
@@ -169,7 +169,6 @@ __all__ = [
     "leaky_surface_brightness",
     "asinh_stretch",
     "linear_stretch",
-    "deblend_sources",
     "deblend_center_offset",
     "extract_center_peaks",
     "plot_two_panel",

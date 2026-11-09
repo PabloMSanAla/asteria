@@ -31,7 +31,7 @@ from asteria.io.reader import load_image
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="asteria",
-        description="Asteria: Fast astronomical UNet++ inference & deblender.",
+        description="Asteria: Fast astronomical UNet++ inference & segmentation engine.",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     parser.add_argument(
@@ -134,11 +134,6 @@ def build_parser() -> argparse.ArgumentParser:
         help="Path to save multi-extension FITS containing the predicted segmentation mask.",
     )
     parser.add_argument(
-        "--deblend",
-        action="store_true",
-        help="Perform marker-controlled watershed deblending and print source catalog.",
-    )
-    parser.add_argument(
         "--no_display",
         action="store_true",
         help="Suppress interactive matplotlib display window.",
@@ -232,26 +227,6 @@ def main(argv=None) -> int:
     print(f"Class 0 (Sky Background):  {n_sky:>10,} px ({100.0 * n_sky / total_px:6.2f}%)")
     print(f"Class 1 (Source Interior): {n_core:>10,} px ({100.0 * n_core / total_px:6.2f}%)")
     print(f"Class 2 (Deblending Edge): {n_edge:>10,} px ({100.0 * n_edge / total_px:6.2f}%)")
-
-    # Watershed Deblending if requested
-    if args.deblend:
-        print("\nRunning marker-controlled watershed deblending...")
-        res = segmentor.segment(
-            image=astro,
-            tile_size=args.tile_size,
-            overlap=args.overlap,
-            batch_size=args.batch_size,
-            stretch_type=args.stretch,
-            **stretch_kwargs,
-        )
-        print(f"Extracted {len(res.masks)} distinct celestial source instances!")
-        if len(res.masks) > 0:
-            print(f"{'ID':<4} {'Centroid (X, Y)':<22} {'BBox [x0, y0, x1, y1]':<26} {'Area (px)':<10}")
-            print("-" * 65)
-            for i in range(min(10, len(res.masks))):
-                cx, cy = res.centroids[i]
-                b = [round(float(v), 1) for v in res.boxes[i]]
-                print(f"{i+1:<4} ({cx:6.1f}, {cy:6.1f})      {str(b):<26} {res.areas[i]:<10}")
 
     # Construct high-contrast overlay of mask and edges on stretched image
     overlay = create_mask_edge_overlay(stretched=stretched, pred_mask=pred_mask)

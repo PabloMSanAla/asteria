@@ -35,7 +35,7 @@ from asteria.inference.device import (
     empty_device_cache,
 )
 from asteria.inference.segmentor import _build_tile_window, _resolve_stretch_kwargs
-from asteria.inference.watershed import SegmentationResult
+from asteria.inference.results import SegmentationResult
 from asteria.io.reader import load_image, AstroImage
 from asteria.stretch.leakysb import stretch_image
 

@@ -21,7 +21,6 @@ from asteria.inference.device import (
     get_adaptive_batch_size,
     empty_device_cache,
 )
-from asteria.inference.watershed import deblend_sources, SegmentationResult
 from asteria.io.reader import load_image, AstroImage
 from asteria.stretch.leakysb import stretch_image
 from asteria.weights.manager import resolve_checkpoint_path
@@ -159,8 +158,7 @@ class AsteriaSegmentor:
     High-performance astronomical inference segmentor powered by boundary-aware UNet++.
 
     Executes promptless deep learning segmentation across astronomical exposures,
-    yielding continuous 3-class probability maps (Sky, Source Interior, Deblending Edge)
-    and deblended discrete object catalogs with marker-controlled watershed.
+    yielding continuous 3-class probability maps (Sky, Source Interior, Deblending Edge).
 
     Parameters
     ----------
@@ -599,97 +597,3 @@ class AsteriaSegmentor:
 
         return pred_mask, probs, stretched
 
-    def segment(
-        self,
-        image: Union[np.ndarray, AstroImage, str, Path],
-        interior_thresh: float = 0.45,
-        fg_thresh: float = 0.50,
-        min_area: int = 10,
-        max_area: Optional[int] = None,
-        tile_size: int = 512,
-        overlap: int = 64,
-        batch_size: Optional[int] = None,
-        memory_fraction: float = 0.2,
-        stretch_type: str = "leakysb",
-        sky: Optional[float] = None,
-        zero_points: Optional[float] = None,
-        pixel_scale: Optional[float] = None,
-        mmin: Optional[float] = None,
-        mmax: Optional[float] = None,
-        leak_slope: Optional[float] = None,
-        negative_slope: Optional[float] = None,
-        positive_slope: Optional[float] = None,
-        **stretch_kwargs,
-    ) -> SegmentationResult:
-        """
-        Segment astronomical sources into discrete, deblended object instances.
-
-        Parameters
-        ----------
-        image : np.ndarray, AstroImage, str, or Path
-            Input astronomical exposure.
-        interior_thresh : float, default 0.45
-            Probability threshold on source interior to mark object seeds.
-        fg_thresh : float, default 0.50
-            Probability threshold for total foreground boundary.
-        min_area : int, default 10
-            Minimum pixel area to retain a detected object.
-        max_area : int, optional
-        tile_size : int, default 512
-        overlap : int, default 64
-        batch_size : int, optional
-            Number of tiles per GPU batch. If None, dynamically calculated.
-        memory_fraction : float, default 0.2
-            Fraction of available free memory budgeted for the batch.
-        stretch_type : str, default 'leakysb'
-        sky : float, optional
-            Sky background value to subtract prior to stretching.
-        zero_points : float, optional
-            Photometric zero point (defaults to 20.472 for Roman L2/L3 MJy/sr, 31.4 for FITS).
-            Aliases: zeropoint, zero_point, zp.
-        pixel_scale : float, optional
-            Detector plate scale in arcsec/pixel (default: 0.11 for Roman WFI).
-            Alias: pixelscale.
-        mmin : float, optional
-            Bright-end surface brightness magnitude cutoff in mag/arcsec^2 (default: 13.0).
-        mmax : float, optional
-            Faint-end surface brightness magnitude cutoff in mag/arcsec^2 (default: 32.0).
-        leak_slope : float, optional
-            Slope of linear response for negative/sub-background flux values (default: 0.05).
-            Alias: leakslope.
-        negative_slope : float, optional
-            Negative slope for leakySB (default: 0.1).
-        positive_slope : float, optional
-            Positive slope for leakySB (default: 0.05).
-        **stretch_kwargs
-            Additional stretch configuration.
-
-        Returns
-        -------
-        SegmentationResult
-            Catalog containing masks, bounding boxes, centroids, and photometry statistics.
-        """
-        _, probs, _ = self.predict_dense(
-            image=image,
-            tile_size=tile_size,
-            overlap=overlap,
-            batch_size=batch_size,
-            memory_fraction=memory_fraction,
-            stretch_type=stretch_type,
-            sky=sky,
-            zero_points=zero_points,
-            pixel_scale=pixel_scale,
-            mmin=mmin,
-            mmax=mmax,
-            leak_slope=leak_slope,
-            negative_slope=negative_slope,
-            positive_slope=positive_slope,
-            **stretch_kwargs,
-        )
-        return deblend_sources(
-            probs=probs,
-            interior_thresh=interior_thresh,
-            fg_thresh=fg_thresh,
-            min_area=min_area,
-            max_area=max_area,
-        )

@@ -18,8 +18,6 @@ Inference & Deblending
    :undoc-members:
    :show-inheritance:
 
-.. autofunction:: asteria.deblend_sources
-
 .. autoclass:: asteria.SegmentationResult
    :show-inheritance:
 

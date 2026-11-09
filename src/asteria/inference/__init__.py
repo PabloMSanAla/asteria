@@ -14,14 +14,13 @@ from asteria.inference.center_offset import (
     deblend_center_offset,
     extract_center_peaks,
 )
-from asteria.inference.watershed import deblend_sources, SegmentationResult
+from asteria.inference.results import SegmentationResult
 
 __all__ = [
     "AsteriaSegmentor",
     "CenterOffsetSegmentor",
     "StarNet3",
     "starnet3",
-    "deblend_sources",
     "deblend_center_offset",
     "extract_center_peaks",
     "SegmentationResult",
