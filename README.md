@@ -1,7 +1,7 @@
 # Asteria 🌌
 
-[![PyPI version](https://img.shields.io/pypi/v/asteria.svg?color=blue)](https://pypi.org/project/asteria/)
-[![Python Versions](https://img.shields.io/pypi/pyversions/asteria.svg)](https://pypi.org/project/asteria/)
+[![PyPI version](https://img.shields.io/pypi/v/asteria-roman.svg?color=blue)](https://pypi.org/project/asteria-roman/)
+[![Python Versions](https://img.shields.io/pypi/pyversions/asteria-roman.svg)](https://pypi.org/project/asteria-roman/)
 [![CI Status](https://github.com/PabloMSanAla/asteria/actions/workflows/ci.yml/badge.svg)](https://github.com/PabloMSanAla/asteria/actions)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Documentation Status](https://readthedocs.org/projects/asteria/badge/?version=latest)](https://asteria.readthedocs.io/en/latest/?badge=latest)
@@ -31,7 +31,6 @@
 - **Seamless Tiled Dense Inference (`predict_dense`)**: Sliding-window 2D Hann/cosine window blending to process arbitrary image sizes (from local cutouts up to full $4088 \times 4088$ Roman WFI exposures) with bounded memory ($< 350$ MB VRAM).
 - **Photometric LeakySB Stretch**: Non-linear surface brightness transformation that preserves stellar point-spread functions (PSFs) while lifting faint, diffuse galactic wings.
 - **Unified Astronomical I/O**: Direct support for 2D astronomical **FITS** (`.fits`, `.fits.gz`), Roman **ASDF** (`.asdf` Level 2 calibrated exposures and Level 3 mosaics via `roman_datamodels`), and raw **NumPy** arrays. Automatically converts Level 2 exposures to surface brightness units ($\text{MJy/sr}$) using calibrated photometry and enables $\text{ZP}=20.472$.
-- **Instant Deblending**: Marker-controlled watershed expansion turning dense neural predictions into discrete celestial catalogs with centroids, bounding boxes, and photometry.
 
 ---
 
@@ -74,29 +73,22 @@ fig = asteria.plot_two_panel(
     pred_mask=pred_mask,
     save_path="prediction.png",
 )
-
-# 4. Extract discrete, deblended astronomical sources (marker-controlled watershed)
-catalog = segmentor.segment("scene_0001_F106.fits")
-print(f"Extracted {len(catalog.masks)} distinct celestial objects!")
-for idx, (cx, cy) in enumerate(catalog.centroids[:5]):
-    print(f"Source #{idx + 1}: centroid=({cx:.1f}, {cy:.1f}), area={catalog.areas[idx]} px")
 ```
 
 ### 2. Command-Line Interface (CLI)
 
-Asteria includes the `asteria-predict` CLI command:
+Asteria includes the `asteria` (and `asteria-predict`) CLI command:
 
 ```bash
 # Basic prediction and display
-asteria-predict scene.fits
+asteria scene.fits
 
 # Full-field tiled inference with saving and FITS export
-asteria-predict scene.fits \
+asteria scene.fits \
     --tile_size 512 \
     --overlap 64 \
     --output results.png \
     --export_fits segmap.fits \
-    --deblend \
     --no_display
 ```
 
