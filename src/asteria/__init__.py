@@ -61,7 +61,7 @@ from asteria.weights.starnet3_manager import (
     resolve_starnet3_checkpoint_path,
 )
 
-__version__ = "0.1.0"
+__version__ = "0.1.1"
 __author__ = "Pablo M. Sanchez-Alarcon"
 __license__ = "MIT"
 

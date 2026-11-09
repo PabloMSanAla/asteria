@@ -48,6 +48,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="Path to fine-tuned UNet++ model checkpoint (.pt) or release version tag (e.g. 'v0.1.0', 'latest').",
     )
     parser.add_argument(
+        "--download",
+        action="store_true",
+        help="Pre-download official Asteria UNet++ weights to local cache without running inference.",
+    )
+    parser.add_argument(
         "--device",
         type=str,
         default=None,
@@ -153,6 +158,13 @@ def main(argv=None) -> int:
 
     parser = build_parser()
     args = parser.parse_args(raw_args)
+
+    if getattr(args, "download", False):
+        from asteria.weights.manager import resolve_checkpoint_path
+        print(f"[asteria] Pre-downloading official UNet++ weights ({args.checkpoint})...")
+        cached_p = resolve_checkpoint_path(args.checkpoint)
+        print(f"[asteria] Successfully cached UNet++ weights at: {cached_p}")
+        return 0
 
     if args.image is None:
         parser.print_help()
@@ -386,17 +398,24 @@ def starnet3_main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     if args.download:
-        download_starnet3_model(version=args.checkpoint)
-        return 0
+        print("[starnet3] Notice: StarNet3 remote weights are not yet published for automatic download.")
+        print("Please provide a local checkpoint path with --checkpoint /path/to/weights.pth or export STARNET3_WEIGHTS_PATH=/path/to/weights.pth")
+        return 1
 
     if not args.image:
         parser.print_help()
-        print("\n[starnet3] Error: Must supply an image path or pass --download.")
+        print("\n[starnet3] Error: Must supply an image path.")
         return 1
 
     image_path = Path(args.image)
     if not image_path.exists():
         print(f"[starnet3] Error: Input image '{image_path}' not found.")
+        return 1
+
+    if args.checkpoint == "latest" and not (os.environ.get("STARNET3_WEIGHTS_PATH") and Path(os.environ["STARNET3_WEIGHTS_PATH"]).exists()):
+        print("\n[starnet3] Notice: StarNet3 remote weights are not yet published for automatic download.")
+        print("Only UNet++ is available for automatic download.")
+        print("Please specify a local checkpoint path via --checkpoint /path/to/weights.pth or export STARNET3_WEIGHTS_PATH=/path/to/weights.pth")
         return 1
 
     print(f"[starnet3] Initializing StarNet3 engine ({args.checkpoint})...")

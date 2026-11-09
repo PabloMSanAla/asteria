@@ -34,33 +34,12 @@ def compute_sha256(path: Path) -> str:
 
 def download_starnet3_weight_file(meta: StarNet3WeightMetadata, destination: Path) -> Path:
     """Download pre-trained StarNet3 weights from remote repository with verification."""
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    temp_dest = destination.with_suffix(".tmp")
-
-    logger.info(f"[starnet3] Downloading {meta.version} weights from: {meta.url}")
-    print(f"[starnet3] Downloading pre-trained StarNet3 weights ({meta.version}) from {meta.url}...")
-
-    try:
-        _download_remote_file(meta.url, temp_dest)
-
-        if meta.sha256:
-            computed = compute_sha256(temp_dest)
-            if computed != meta.sha256:
-                logger.warning(
-                    f"[starnet3] Checksum warning: expected {meta.sha256}, got {computed}."
-                )
-
-        temp_dest.replace(destination)
-        print(f"[starnet3] Successfully cached weights at: {destination}")
-        return destination
-    except Exception as e:
-        if temp_dest.exists():
-            temp_dest.unlink()
-        raise RuntimeError(
-            f"Failed to download StarNet3 weights for {meta.version} from {meta.url}. "
-            f"Error: {e}\nYou can manually specify a local checkpoint path via --checkpoint or "
-            f"export STARNET3_WEIGHTS_PATH=/path/to/starnet3.pt"
-        ) from e
+    raise RuntimeError(
+        f"StarNet3 weights for {meta.version} are not currently published for automatic remote download. "
+        "Only UNet++ weights are available for automatic download.\n"
+        "Please manually specify a local checkpoint path via --checkpoint /path/to/weights.pth "
+        "or export STARNET3_WEIGHTS_PATH=/path/to/weights.pth"
+    )
 
 
 def resolve_starnet3_checkpoint_path(

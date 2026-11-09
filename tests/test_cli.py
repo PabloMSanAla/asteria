@@ -2,6 +2,7 @@
 
 import pytest
 import torch
+from asteria import __version__
 from asteria.cli import main
 from asteria.models.unetpp import UNetPlusPlus
 from asteria.utils.synthetic import save_synthetic_fits
@@ -37,7 +38,22 @@ def test_cli_version_flag(capsys):
         main(["--version"])
     assert exc.value.code == 0
     captured = capsys.readouterr()
-    assert "asteria 0.1.0" in captured.out or "asteria 0.1.0" in captured.err
+    assert f"asteria {__version__}" in captured.out or f"asteria {__version__}" in captured.err
+
+
+def test_cli_download_flag(monkeypatch, tmp_path, capsys):
+    """Verify asteria --download pre-downloads and caches UNet++ weights."""
+    import asteria.weights.manager as wm
+
+    mock_ckpt = tmp_path / "mock_unetpp.pt"
+    mock_ckpt.write_text("mock unetpp")
+    monkeypatch.setattr(wm, "resolve_checkpoint_path", lambda version: mock_ckpt)
+
+    ret = main(["--download"])
+    assert ret == 0
+    captured = capsys.readouterr()
+    assert "Pre-downloading official UNet++ weights" in captured.out
+    assert "Successfully cached UNet++ weights at" in captured.out
 
 
 def test_cli_help(capsys):
