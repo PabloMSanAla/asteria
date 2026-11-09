@@ -36,13 +36,13 @@ Standard installation via ``pip``:
 
 .. code-block:: bash
 
-   pip install asteria
+   pip install asteria-roman
 
 To enable Roman Space Telescope ASDF Level 2 support:
 
 .. code-block:: bash
 
-   pip install "asteria[asdf]"
+   pip install "asteria-roman[asdf]"
 
 Quickstart
 ----------

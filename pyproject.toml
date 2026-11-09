@@ -3,7 +3,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "asteria"
+name = "asteria-roman"
 version = "0.1.0"
 description = "Lightweight astronomical deep learning inference engine and instance deblender powered by boundary-aware UNet++"
 readme = "README.md"

@@ -39,7 +39,7 @@
 
 ### From PyPI
 ```bash
-pip install asteria
+pip install asteria-roman
 ```
 
 ### From Source
